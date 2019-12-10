@@ -8,10 +8,14 @@ class image_processor:
 
     filter_proc_hand = None
     fourier_hand = None
+    huffman_hand = None
+    haar_hand    = None
 
-    def __init__(self, filter_proc_hand, fourier_hand):
+    def __init__(self, filter_proc_hand, fourier_hand, huffman_hand, haar_hand):
         self.filter_proc_hand = filter_proc_hand
         self.fourier_hand = fourier_hand
+        self.huffman_hand = huffman_hand
+        self.haar_hand = haar_hand
 
     def log_func(self, img_array, k):
         hand_array = img_array.astype(int) # Converting array to int type
@@ -282,6 +286,37 @@ class image_processor:
         
         return [h, s, v]
 
+    def dhwt_func(self, img_array, depth = 1):
+
+        if (len(img_array.shape) != 3):
+            result = self.haar_hand.DHWT_2D(img_array, depth)
+        else:
+            result = np.zeros((img_array.shape[0], img_array.shape[1], img_array.shape[2]))
+            for i in range(0, img_array.shape[2]):
+                result[:,:,i] = self.haar_hand.DHWT_2D(img_array[:,:,i], depth)
+        #return self.normalize(result).astype('uint8')
+        return result
+
+
+    def idhwt_func(self, img_array, depth = 1):
+
+        #result = img_array
+
+        #print(img_array.shape)
+        if (len(img_array.shape) != 3):
+            result = self.haar_hand.IDHWT_2D(img_array, depth)
+        else:
+            result = np.zeros((img_array.shape[0], img_array.shape[1], img_array.shape[2]))
+            for i in range(0, img_array.shape[2]):
+                result[:,:,i] = self.haar_hand.IDHWT_2D(img_array[:,:,i], depth)
+
+            #result = np.reshape(result, (img_array.shape[0], img_array.shape[1], 3))
+
+        print(np.min(result))
+        return self.normalize(result).astype('uint8')
+
+
+
     def hsv2rgb(self, hsv):
         h,s,v = hsv
         r,g,b = 0,0,0
@@ -327,6 +362,22 @@ class image_processor:
                     hand_array[i][j] = int(img_array[i][j][0]*0.21 + img_array[i][j][0]*0.72 + img_array[i][j][0]*0.07)
 
         return self.normalize(hand_array).astype('uint8') #Normalize
+
+    #Dirty way
+    def gray2rgb(self, img_array):
+
+        if (len(img_array.shape) != 2):
+            print("> The image is not a Graysacale one.")
+            return None
+
+        hand_array = np.zeros([img_array.shape[0], img_array.shape[1],3])
+
+        for i in range(0, img_array.shape[0]):
+            for j in range(0, img_array.shape[1]):
+                hand_array[i,j,:] = img_array[i,j]
+
+        return self.normalize(hand_array).astype('uint8') #Normalize
+
 
     def sepia(self, img_array):
         
@@ -469,6 +520,172 @@ class image_processor:
 
         return self.normalize(hand_array).astype('uint8') #Normalize
 
+
+    def huffman_haar_compress(self, img_array, depth=1, to_gray=0):
+        hand_image_array = self.normalize(self.dhwt_func(img_array, depth)).astype('uint8')
+        
+        if (to_gray == 1):
+            if (len(img_array.shape) != 3):
+                print("> This options is available only for RGB images.")
+                return -1
+
+            origin, comp = self.haar_separate_components(hand_image_array, depth)
+            enc_word,root,n_leaves = self.huffman_haar_to_gray_encode(comp, origin)
+        else:
+            enc_word,root,n_leaves = self.huffman_encode(hand_image_array)
+
+        complete_word_enc = self.huffman_hand.huff2bit(enc_word, root, n_leaves)
+        return complete_word_enc
+
+    def huffman_compress(self, img_array):
+        enc_word,root,n_leaves = self.huffman_encode(img_array)
+        complete_word_enc = self.huffman_hand.huff2bit(enc_word, root, n_leaves)
+        return complete_word_enc
+
+    def huffman_haar_decompress(self, encode_array, height, width, rgb, depth=1, to_gray=0):
+        
+        if (rgb != '1'):
+            img_hand = np.zeros([height, width])
+        else:
+            img_hand = np.zeros([height, width, 3])
+
+        dec_word = self.huffman_decode(encode_array)
+
+        #TODO: Use the same loop
+        if (rgb != '1'):
+            for i in range(0,len(dec_word)):
+                if (int(i/width) > (height-1) or int(i%width) > (width-1)):
+                    break
+                img_hand[int(i/width)][int(i%width)] = dec_word[i]
+
+        else:
+            if (to_gray == 0):  
+                for k in range(0,3):
+                    for i in range(0,height):
+                        for j in range(0,width):
+                            if ((j+i*width+(k*width*height)) < len(dec_word)): #HACK: (Something is going wrong, the writed file has the wrong size sometimes)
+                                img_hand[i][j][k] = dec_word[j+i*width+(k*width*height)]
+            
+            #Haar with grayscale:
+            else:
+                origin_height = int(height/2**depth)
+                origin_width = int(width/2**depth)
+
+                origin_img_hand = np.zeros([origin_height, origin_width, 3])
+                componets_img_hand = np.zeros([height, width])
+                for k in range(0,3):
+                    for i in range(0,origin_height):
+                        for j in range(0,origin_width):
+                            origin_img_hand[i][j][k] = dec_word[j+i*origin_width+(k*origin_width*origin_height)]
+
+                for i in range(origin_height*origin_width*3,len(dec_word)):
+                    if (int(i/width) > (height-1) or int(i%width) > (width-1)):
+                        break
+                    componets_img_hand[int(i/width)][int(i%width)] = dec_word[i]
+
+                img_hand = self.haar_join_components(origin_img_hand, componets_img_hand, depth)
+
+
+        img_hand = self.idhwt_func(img_hand, depth)
+
+        return self.normalize(img_hand).astype('uint8') #Normalize
+
+
+    def huffman_decompress(self, encode_array, height, width, rgb):
+        
+        if (rgb != '1'):
+            img_hand = np.zeros([height, width])
+        else:
+            img_hand = np.zeros([height, width, 3])
+
+        dec_word = self.huffman_decode(encode_array)
+
+        #TODO: Use the same loop
+        if (rgb != '1'):
+            for i in range(0,len(dec_word)):
+                if (int(i/width) > (height-1) or int(i%width) > (width-1)):
+                    break
+                img_hand[int(i/width)][int(i%width)] = dec_word[i]
+
+        else:
+            for k in range(0,3):
+                for i in range(0,height):
+                    for j in range(0,width):
+                        img_hand[i][j][k] = dec_word[j+i*width+(k*width*height)]
+
+        #print(img_hand)
+
+        return self.normalize(img_hand).astype('uint8') #Normalize
+
+    def huffman_encode(self, img_array):
+
+        if (len(img_array.shape) != 3):
+            height, width = img_array.shape
+            img_flat_array = img_array.reshape((1, height*width))[0]
+        else:
+            height, width, depth = img_array.shape
+            img_flat_array = np.zeros(height*width*depth)
+            #HACK: The reshape was not working
+            for k in range(0, depth):
+                for i in range(0, height):
+                    for j in range(0, width):
+                        img_flat_array[j + i*width + k*height*width] = int(img_array[i][j][k])
+
+        return self.huffman_hand.encode(img_flat_array.astype('uint8'))
+
+    def huffman_haar_to_gray_encode(self, components, original):
+
+        height, width, depth = original.shape
+
+        origin_img_flat_array = np.zeros(height*width*depth)
+        components_img_flat_array = components.reshape((1, components.shape[0]*components.shape[1]))[0]
+
+        for k in range(0, depth):
+                for i in range(0, height):
+                    for j in range(0, width):
+                        origin_img_flat_array[j + i*width + k*height*width] = int(original[i][j][k])
+
+        img_flat_array = np.hstack((origin_img_flat_array, components_img_flat_array))
+
+
+        return self.huffman_hand.encode(img_flat_array.astype('uint8'))
+
+    def huffman_decode(self, encode_array):
+        enc_array, root = self.huffman_hand.bit2huff(encode_array)
+        dec = self.huffman_hand.decode(enc_array, root)
+        return dec
+
+    def haar_separate_components(self, img_array, depth = 1):
+        height = img_array.shape[0]
+        width  = img_array.shape[1]
+        #Original
+        original   = img_array[0:int(height/2**depth), 0:int(width/2**depth)]
+        #Components
+        components = np.zeros((height, width, 3))
+        
+        components[0:int(height/2**depth), int(width/2**depth):width, :]      = img_array[0:int(height/2**depth), int(width/2**depth):width, :] #Top-Right
+        components[int(height/2**depth):height, int(width/2**depth):width, :] = img_array[int(height/2**depth):height, int(width/2**depth):width, :] #Bottom-Right
+        components[int(height/2**depth):height, 0:int(width/2**depth), :]     = img_array[int(height/2**depth):height, 0:int(width/2**depth), :] #Bottom-Left
+
+        components = self.rgb2gray(components, 1)
+
+        return (original, components)
+
+    def haar_join_components(self, original, components, depth = 1):
+        height = components.shape[0]
+        width  = components.shape[1]
+
+        result = np.zeros((height,width, 3))
+
+        for i in range(0,3):
+            result[:,:,i] = components[:,:]
+
+        result[0:int(height/2**depth), 0:int(width/2**depth)] = original
+
+
+        return result
+
+
     #Aux methods
     def distance(self, a, b):
         return ((a[0]-b[0])**2 + (a[1]-b[1])**2 + (a[2]-b[2])**2)**(1/2)
@@ -483,7 +700,14 @@ class image_processor:
         return result.astype(int)
 
     def normalize(self, img_array, top=255):
+
+        #print("Max: ", np.max(img_array))
+        #print("Min: ", np.min(img_array))
+
         if (np.max(img_array) > 0):
+            #if (np.min(img_array) < 0):
+            #    img_array = img_array + (np.abs(np.min(img_array)))
+            img_array[img_array < 0] = 0 # Replace negative with 0s
             return top*(img_array/np.max(img_array))
         return img_array
      
@@ -744,24 +968,26 @@ class fourier():
         f = np.asarray(f, dtype=float)
         M = f.shape[0]
         N = f[0].shape[0]
-        
+
         if (np.log2(N) % 1 > 0 or np.log2(M) % 1 > 0):
             print("> The dimensions must be a power of 2, using DFT ...")
             return self.DFT_2D(f)
 
 
-        result_row = np.asarray([[0.0 for k in range(M)] for l in range(N)], dtype=complex)
-        result     = np.asarray([[0.0 for k in range(M)] for l in range(N)], dtype=complex)
+        result_row = np.asarray([[0.0 for k in range(N)] for l in range(M)], dtype=complex)
+        result     = np.asarray([[0.0 for k in range(N)] for l in range(M)], dtype=complex)
 
-        for i in range(N):
+        for i in range(M):
+            #pass
+            #print(f[i])
             x = f[i]
-            result_row [i] = self.FFT(x)[0:M]
+            result_row [i] = self.FFT(x)[0:N]
 
         result_row = (np.array(result_row))
 
-        for j in range(M):
+        for j in range(N):
             y = result_row[:,j]
-            result [:,j] = self.FFT(y)[0:N]
+            result [:,j] = self.FFT(y)[0:M]
 
         return result
     
@@ -820,17 +1046,17 @@ class fourier():
             print("> The dimensions must be a power of 2, using DFT ...")
             return self.IDFT_2D(f)
         
-        result_row = np.asarray([[0.0 for k in range(M)] for l in range(N)], dtype=complex)
-        result     = np.asarray([[0.0 for k in range(M)] for l in range(N)], dtype=complex)
-        for i in range(N):
+        result_row = np.asarray([[0.0 for k in range(N)] for l in range(M)], dtype=complex)
+        result     = np.asarray([[0.0 for k in range(N)] for l in range(M)], dtype=complex)
+        for i in range(M):
             x = f[i];
-            result_row [i] = self.IFFT(x)[0:M]
+            result_row [i] = self.IFFT(x)[0:N]
 
         result_row = np.array(result_row)
 
-        for j in range(M):
+        for j in range(N):
             y = result_row[:,j]
-            result [:,j] = self.IFFT(y)[0:N]
+            result [:,j] = self.IFFT(y)[0:M]
 
         return result
 

@@ -11,6 +11,7 @@ from PIL import Image, ImageTk #Image and Image Tk handle
 
 from image_processor import image_processor
 from soin_image import soin_image
+from binary_file import binary_file
 
 
 class soin_gui():
@@ -23,6 +24,9 @@ class soin_gui():
     soin_img_hand_original = None #Original Image Handle
     #Image Processor
     img_proc_hand = None #Image Processor Handle
+    #Binary File
+    bin_file_hand = None
+
     #Top window
     wm            = None
     #Image Label
@@ -104,9 +108,10 @@ class soin_gui():
     chk_radius    = None
 
 
-    def __init__(self, soin_img_hand, img_proc_hand, top_path = ''):
+    def __init__(self, soin_img_hand, img_proc_hand, bin_file_hand, top_path = ''):
         self.soin_img_hand = soin_img_hand
         self.img_proc_hand = img_proc_hand
+        self.bin_file_hand = bin_file_hand
         self.top_path = top_path
 
     def build_wm(self):
@@ -117,7 +122,7 @@ class soin_gui():
     def build_top(self):
         #Top Windows
         self.wm = tk.Tk()
-        icon_image = tk.PhotoImage(file = self.top_path+'/resources/logo/soin_logo_bg_200X200.png') 
+        icon_image = tk.PhotoImage(file = self.top_path+'/resource/logo/soin_logo_64X64.png') 
         self.wm.iconphoto(False, icon_image)
         self.wm.title("Soin Image Editor")
         if (self.soin_img_hand != None):
@@ -133,12 +138,12 @@ class soin_gui():
             self.wm_img_label = tk.Label(self.wm, text = "Image Label", image =self.wm_img )
             self.wm_img_label.place(height=self.soin_img_hand.img_height, width=self.soin_img_hand.img_width, x=0, y=0)
         else:
-            #img_init          = Image.open(self.top_path+'/resources/logo/soin_logo_bg_200X200.png')
+            #img_init          = Image.open(self.top_path+'/resource/logo/soin_logo_bg_200X200.png')
             #wm_img_init       = ImageTk.PhotoImage(img_init)
             #wm_img_init_label = tk.Label(self.wm, text = "Image Label", image =wm_img_init )
             #wm_img_init_label.place(height=400, width=400, x=0, y=0)
 
-            img_init          = Image.open(self.top_path+'/resources/logo/soin_logo_bg_200X200.png')
+            img_init          = Image.open(self.top_path+'/resource/logo/soin_logo_bg_200X200.png')
             self.wm_img       = ImageTk.PhotoImage(img_init)
             self.wm_img_label = tk.Label(self.wm, text = "Image Label", image =self.wm_img )
             self.wm_img_label.place(height=400, width=400, x=0, y=0)
@@ -179,6 +184,7 @@ class soin_gui():
         self.wm_toolmenu.add_command(label="Sepia"                              , command=self.sepia_call)
         self.wm_toolmenu.add_command(label="Adjustment"                         , command=self.build_adjustment_wm)
         self.wm_toolmenu.add_command(label="Chroma Key"                         , command=self.build_chkey_wm)
+        self.wm_toolmenu.add_command(label="Wavelet Haar"                       , command=self.build_haar_wm)
 
 
         self.wm_menubar.add_cascade(label="Tools", menu=self.wm_toolmenu)
@@ -197,20 +203,34 @@ class soin_gui():
             self.wm_menubar.entryconfig("Tools", state="disable")
 
     def browse_open_file(self):
-        filetypes=[('TIF files','*.tif'), ('PNG files','*.png'), ('JPEG files','*.jpeg *.jpg'), ('All','*')]
+        filetypes=[('TIF files','*.tif'), ('PNG files','*.png'), ('JPEG files','*.jpeg *.jpg'), ('Soin Compress files','*.scimg'), ('All','*')]
         img_file = filedialog.askopenfile(parent=self.wm, mode='rb', title='Choose a image', filetypes=filetypes)
         try:
-            new_soin_img_hand = soin_image(img_file.name, self.img_proc_hand)
-            new_soin_img_hand.open_image()
-            self.update_image(new_soin_img_hand)
+            file,ext = os.path.splitext(img_file.name)
+            if (ext != '.scimg'):
+                new_soin_img_hand = soin_image(img_file.name, self.img_proc_hand)
+                new_soin_img_hand.open_image()
+                self.update_image(new_soin_img_hand)
+            else:
+                new_soin_img_hand = soin_image(img_file.name, self.img_proc_hand)
+                self.soin_img_hand = new_soin_img_hand
+                #new_soin_img_hand.open_image()
+                #self.update_image(new_soin_img_hand)
+                #self.open_compressed_file(img_file.name)
+                self.open_compressed_file(img_file.name)
         except AttributeError:
             print('> Any new image was selected.')
 
     def browse_save_file(self):
-        filetypes=[('TIF files','*.tif'), ('PNG files','*.png'), ('JPEG files','*.jpeg'), ('BMP files','*.bmp')]
+        filetypes=[('TIF files','*.tif'), ('PNG files','*.png'), ('JPEG files','*.jpeg'), ('BMP files','*.bmp'), ('Soin Compress files','*.scimg')]
         img_file = filedialog.asksaveasfile(parent=self.wm, mode='w', title='Choose a image', filetypes=filetypes)
+        file,ext = os.path.splitext(img_file.name)
         try:
-            self.soin_img_hand.save_image(img_file.name)
+            if (ext != '.scimg'):
+                self.soin_img_hand.save_image(img_file.name)
+            else:
+                #self.save_compressed_file(img_file.name)
+                self.build_compress_wm(img_file.name)
         except AttributeError:
             print('> An error occurred trying to save the image.')
 
@@ -438,14 +458,14 @@ class soin_gui():
         self.spec_radius_val = tk.IntVar()
         self.spec_width_val = tk.IntVar()
 
-        spec_dif_height = 500 - spec_img.shape[1]
+        spec_dif_height = 500 - spec_img.shape[0]
 
         if (spec_dif_height < 0):
             spec_dif_height = 0
 
-        spec_wm_height = spec_img.shape[1]+spec_dif_height
+        spec_wm_height = spec_img.shape[0]+spec_dif_height
 
-        self.spec_wm.geometry(str(spec_img.shape[0]+250)+"x"+str(spec_wm_height))
+        self.spec_wm.geometry(str(spec_img.shape[1]+250)+"x"+str(spec_wm_height))
 
         self.spec_filter_sel = tk.IntVar()
 
@@ -476,17 +496,17 @@ class soin_gui():
 
         #Label
         spec_radius_label  = tk.Label(self.spec_wm, text = "Radius")
-        spec_radius_label.place(x=spec_img.shape[0]+150, y=10)
+        spec_radius_label.place(x=spec_img.shape[1]+150, y=10)
         spec_width_label  = tk.Label(self.spec_wm, text = "Width")
-        spec_width_label.place(x=spec_img.shape[0]+150, y=70)
+        spec_width_label.place(x=spec_img.shape[1]+150, y=70)
         #Entry 
         #self.spec_filter_sel.trace("w", self.freq_filter_sel)
         spec_radius_entry = tk.Entry(self.spec_wm, bd = 1, textvariable=self.spec_radius_val)
-        spec_radius_entry.place(x=spec_img.shape[0]+150, y=40, height = 20, width = 50)
+        spec_radius_entry.place(x=spec_img.shape[1]+150, y=40, height = 20, width = 50)
         self.spec_radius_val.set(1)
 
         spec_width_entry = tk.Entry(self.spec_wm, bd = 1, textvariable=self.spec_width_val)
-        spec_width_entry.place(x=spec_img.shape[0]+150, y=90, height = 20, width = 50)
+        spec_width_entry.place(x=spec_img.shape[1]+150, y=90, height = 20, width = 50)
         self.spec_width_val.set(1)
             
 
@@ -494,12 +514,22 @@ class soin_gui():
 
         for text, mode in MODES:
             r_bt = tk.Radiobutton(self.spec_wm, text=text, value=mode, variable=self.spec_filter_sel, command = self.freq_filter_sel)
-            r_bt.place(x=spec_img.shape[0]+20, y=10+mode*50)
+            r_bt.place(x=spec_img.shape[1]+20, y=10+mode*50)
 
         apply_bt    = tk.Button(self.spec_wm, width = 7, height = 1, text = "Apply", command = self.freq_filter_sel_call)
-        apply_bt.place(x=spec_img.shape[0]+50, y=spec_wm_height-50)
+        apply_bt.place(x=spec_img.shape[1]+50, y=spec_wm_height-50)
 
-    
+    def build_haar_wm(self):
+        haar_wm = tk.Toplevel(self.wm)
+        haar_wm.title("Wavelet Haar")
+        haar_depth = tk.IntVar()
+
+        haar_wm.geometry(str(self.soin_img_hand.img_width+250)+"x"+str(self.soin_img_hand.img_height))
+
+        haar_wm_img       = Image.fromarray(self.soin_img_hand.img_array)
+        haar_wm_img       = ImageTk.PhotoImage(haar_wm_img)
+
+
     def build_rgb_hsv_wm(self):
         rgb_hsv_wm = tk.Toplevel(self.wm)
         rgb_hsv_wm.title("RGB <-> HSV")
@@ -617,6 +647,61 @@ class soin_gui():
             
         chk_apply_bt    = tk.Button(chk_wm, width = 3, height = 1, text = "Apply", command = self.chroma_key_call)
         chk_apply_bt.place(x=85, y=100)
+
+    def build_compress_wm(self, path):
+        comp_wm = tk.Toplevel(self.wm)
+        comp_wm.title("Compression")
+        comp_wm.geometry("250x160")
+
+        comp_method = tk.IntVar()
+        haar_comp_depth = tk.IntVar()
+
+        #Radio Buttons Modes
+        MODES = [
+            ("Huffman"        , 0),
+            ("Haar + Huffman" , 1),
+            ("Haar (Grayscale) + Huffman" , 2),
+        ]
+
+
+        #Buttons
+
+        for text, mode in MODES:
+            r_bt = tk.Radiobutton(comp_wm, text=text, value=mode, variable=comp_method)
+            r_bt.place(x=20, y=10+mode*20)
+
+        #Radius
+        comp_haar_label_depth = tk.Label(comp_wm, text = "Haar Depth:")
+        comp_haar_label_depth.place(x=10, y=90)
+        comp_haar_scale_depth = tk.Scale(comp_wm, variable=haar_comp_depth, from_=1, to=8, orient=tk.HORIZONTAL)
+        comp_haar_scale_depth.place(x=120, y=70)
+            
+        comp_save_bt    = tk.Button(comp_wm, width = 3, height = 1, text = "Save", command = lambda: self.save_compressed_file(path, comp_method.get(), haar_comp_depth.get()))
+        comp_save_bt.place(x=85, y=115)
+
+    def build_decompress_wm(self, path):
+        decomp_wm = tk.Toplevel(self.wm)
+        decomp_wm.title("Compression")
+        decomp_wm.geometry("250x150")
+
+        decomp_method = tk.IntVar()
+
+        #Radio Buttons Modes
+        MODES = [
+            ("Huffman"        , 0),
+            ("Haar + Huffman" , 1),
+            ("Haar (Grayscale) + Huffman" , 2),
+        ]
+
+        #Buttons
+
+        for text, mode in MODES:
+            r_bt = tk.Radiobutton(decomp_wm, text=text, value=mode, variable=decomp_method)
+            r_bt.place(x=20, y=10+mode*20)
+            
+        decomp_open_bt    = tk.Button(decomp_wm, width = 3, height = 1, text = "Open", command = lambda: self.open_compressed_file(path))
+        decomp_open_bt.place(x=85, y=100)
+
 
 
     def open_image_background(self):
@@ -1152,6 +1237,89 @@ class soin_gui():
             self.update_image(self.soin_img_hand) #Update Gui Image
         else:
             print("> The image is not a RGB one.")
+
+
+    def save_compressed_file(self, path, method, depth = 1):
+        
+        if (self.soin_img_hand.img_height >= 65536 or self.soin_img_hand.img_width >= 65536):
+            print("> Dimensions are bigger than the suported.")
+            return -1
+
+
+        print("> Compressing image ...")
+        
+        low_height = self.soin_img_hand.img_height
+        high_height = self.soin_img_hand.img_height >> 8
+
+        low_width = self.soin_img_hand.img_width
+        high_width = self.soin_img_hand.img_width >> 8
+
+        low_h_bin = self.bin_file_hand.get_bin_byte(low_height)
+        high_h_bin = self.bin_file_hand.get_bin_byte(high_height)
+
+        low_w_bin = self.bin_file_hand.get_bin_byte(low_width)
+        high_w_bin = self.bin_file_hand.get_bin_byte(high_width)
+
+        rgb   = str(self.soin_img_hand.is_rgb)
+
+        depth_bin  = self.bin_file_hand.get_bin_byte(depth)[4:8]
+        method_bin = self.bin_file_hand.get_bin_byte(method)[6:8]
+
+        if (method == 0):
+            img_bit_string = self.img_proc_hand.huffman_compress(self.soin_img_hand.img_array)
+            final_bit_string = method_bin+high_h_bin + low_h_bin + high_w_bin + low_w_bin + rgb + img_bit_string
+        elif(method == 1):
+            img_bit_string = self.img_proc_hand.huffman_haar_compress(self.soin_img_hand.img_array, depth, 0)
+            final_bit_string = method_bin+depth_bin + high_h_bin + low_h_bin + high_w_bin + low_w_bin + rgb + img_bit_string
+        else:
+            img_bit_string = self.img_proc_hand.huffman_haar_compress(self.soin_img_hand.img_array, depth, 1)
+            final_bit_string = method_bin+depth_bin + high_h_bin + low_h_bin + high_w_bin + low_w_bin + rgb + img_bit_string
+
+        self.bin_file_hand.write_file(path, final_bit_string)
+
+        print("> Compression finished.")
+
+    def open_compressed_file(self, path):
+        print("> Decompressing image ...")
+        
+        enc_file = self.bin_file_hand.read_file(path)
+        
+        method_bin = '000000'+enc_file[0:2]
+        method  = self.bin_file_hand.to_byte(method_bin)[0]
+
+        start = 2
+
+        if (method == 0):
+            start += 0
+        else:
+            haar_depth_bin = '0000'+enc_file[start:start+4]
+            haar_depth_val = self.bin_file_hand.to_byte(haar_depth_bin)[0]
+            start += 4
+
+        dimensions_bin = enc_file[start:start+33]
+        height_bin     = dimensions_bin[0:16]
+        width_bin      = dimensions_bin[16:32]
+        rgb            = dimensions_bin[32]
+
+        enc_huff_img   = enc_file[start+33:len(enc_file)]
+
+        height_vec = self.bin_file_hand.to_byte(height_bin)
+        width_vec  = self.bin_file_hand.to_byte(width_bin)
+
+        height = (height_vec[0] << 8) | height_vec[1]
+        width  = (width_vec[0] << 8) | width_vec[1]
+
+        if (method == 0):
+            self.soin_img_hand.img_array = self.img_proc_hand.huffman_decompress(enc_huff_img, height, width, rgb)
+        elif (method == 1):
+            self.soin_img_hand.img_array = self.img_proc_hand.huffman_haar_decompress(enc_huff_img, height, width, rgb, haar_depth_val, 0)
+        else:
+            self.soin_img_hand.img_array = self.img_proc_hand.huffman_haar_decompress(enc_huff_img, height, width, rgb, haar_depth_val, 1)
+        self.soin_img_hand.update_image() #Update Soin Image 
+        self.update_image(self.soin_img_hand) #Update Gui Image
+
+        print("> Decompression finished.")
+
 
     def restore(self, event=None):
         self.soin_img_hand.img_array = self.soin_img_hand.img_orig

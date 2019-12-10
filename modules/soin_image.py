@@ -71,12 +71,13 @@ class soin_image:
             self.is_rgb = 0
 
     def hsv_update(self):
-        self.img_hsv = np.zeros([self.img_width, self.img_height, 3])
-        for i in range(0, self.img_width):
-            for j in range(0, self.img_height):
+        print(self.img_width, self.img_height)
+        self.img_hsv = np.zeros([self.img_height, self.img_width, 3])
+        for i in range(0, self.img_height):
+            for j in range(0, self.img_width):
                 self.img_hsv[i,j,:] = self.img_proc_hand.rgb2hsv(self.img_array[i,j,:])
 
     def rgb_update(self):
-        for i in range(0, self.img_width):
-            for j in range(0, self.img_height):
+        for i in range(0, self.img_height):
+            for j in range(0, self.img_width):
                 self.img_array[i,j,:] = self.img_proc_hand.hsv2rgb(self.img_hsv[i,j,:])
